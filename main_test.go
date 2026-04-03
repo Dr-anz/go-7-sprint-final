@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,89 +52,110 @@ func TestCafeWhenOk(t *testing.T) {
 }
 
 func TestCafeCount(t *testing.T) {
+	// Создаём обработчик на основе нашей функции mainHandle
+	// Это позволяет тестировать логику без запуска реального HTTP‑сервера
+	handler := http.HandlerFunc(mainHandle)
 
-	// определяем текстовую таблицу
+	// Тестовая таблица: пары «входные данные — ожидаемый результат»
 	requests := []struct {
-		count int // передаваемое значение count
+		count int // значение параметра count, которое передаём в запросе
 		want  int // ожидаемое количество кафе в ответе
 	}{
-		{count: 0, want: 0},
-		{count: 1, want: 1},
-		{count: 2, want: 2},
-		{count: 100, want: len(cafeList["moscow"])}, // предпологаем что проверяем на москве
+		{count: 0, want: 0},                         // если count=0, ждём 0 кафе
+		{count: 1, want: 1},                         // если count=1, ждём 1 кафе
+		{count: 2, want: 2},                         // если count=2, ждём 2 кафе
+		{count: 100, want: len(cafeList["moscow"])}, // если count большой, ждём все кафе Москвы
 	}
 
+	// Перебираем все тестовые случаи
 	for _, req := range requests {
-		// формируем URL с параметром count
-		url := "http://localhost:8080/cafe?city=moscow&count=" + fmt.Sprintf("%d", req.count)
+		// Формируем URL с параметрами city и count
+		// Например: "/cafe?city=moscow&count=2"
+		url := fmt.Sprintf("/cafe?city=moscow&count=%d", req.count)
 
-		// отправляем GET-запрос
-		resp, err := http.Get(url)
-		require.NoError(t, err)
-		defer resp.Body.Close()
+		// Создаём «записывающее устройство» для ответа сервера
+		// Оно будет хранить ответ (статус, тело и т. д.), который вернёт наш обработчик
+		response := httptest.NewRecorder()
 
-		// проверяем что запрос успешно обработан (статус 200 ОК)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		// Создаём имитированный HTTP‑запрос
+		// Метод GET, указанный URL, тело запроса пустое (nil)
+		httpReq := httptest.NewRequest("GET", url, nil)
 
-		// читаем тело ответа
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
+		// Запускаем обработчик: передаём ему запрос и записывающее устройство
+		// Обработчик выполнит логику mainHandle и запишет результат в response
+		handler.ServeHTTP(response, httpReq)
 
-		// разбиваем строку на слайс по запятым
-		cafes := strings.Split(string(body), ",")
+		// Проверяем, что сервер вернул статус 200 OK
+		require.Equal(t, http.StatusOK, response.Code)
 
-		// если строка пустая то слайс будет содержать один пустой элемент
+		// Читаем тело ответа — это строка с названиями кафе через запятую
+		body := response.Body.String()
+
+		// Разбиваем строку на слайс строк по запятым
+		cafes := strings.Split(body, ",")
+
+		// Обрабатываем случай пустой строки
+		// Если в ответе ничего нет, Split вернёт [""] — заменяем на пустой слайс []string{}
 		if len(cafes) == 1 && cafes[0] == "" {
 			cafes = []string{}
 		}
 
-		// сравниваем длину слайса с ожидаемым количеством
+		// Сравниваем количество кафе в ответе с ожидаемым значением
 		assert.Equal(t, req.want, len(cafes))
 	}
 }
 
 func TestCafeSearch(t *testing.T) {
+	// Создаём обработчик на основе нашей функции mainHandle
+	// Это позволяет тестировать логику без запуска реального HTTP‑сервера
+	handler := http.HandlerFunc(mainHandle)
 
-	// определяем тестовую таблицу
+	// Тестовая таблица для поиска кафе
 	requests := []struct {
-		search    string // передаваемое значение search
-		wantCount int    // ожидаемое количество кафе в ответе
+		search    string // поисковая подстрока
+		wantCount int    // ожидаемое количество найденных кафе
 	}{
-		{search: "фасоль", wantCount: 0},
-		{search: "кофе", wantCount: 2},
-		{search: "вилка", wantCount: 1},
+		{search: "фасоль", wantCount: 0}, // «фасоль» не встречается — ждём 0 результатов
+		{search: "кофе", wantCount: 2},   // «кофе» есть в 2 кафе Москвы
+		{search: "вилка", wantCount: 1},  // «вилка» есть в 1 кафе Москвы
 	}
 
+	// Перебираем тестовые случаи
 	for _, req := range requests {
-		// формируем URL с параметрами city и search
-		url := "http://localhost:8080/cafe?city=moscow&search=" + req.search
+		// Формируем URL с параметрами city и search
+		// Например: "/cafe?city=moscow&search=кофе"
+		url := fmt.Sprintf("/cafe?city=moscow&search=%s", req.search)
 
-		// отправляем GET-запрос
-		resp, err := http.Get(url)
-		require.NoError(t, err)
-		defer resp.Body.Close()
+		// Имитируем HTTP‑ответ
+		response := httptest.NewRecorder()
 
-		// проверяем что запрос успешно обработан (статус 200 ОК)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		// Имитируем HTTP‑запрос
+		httpReq := httptest.NewRequest("GET", url, nil)
 
-		// читаем тело ответа
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
+		// Запускаем обработчик с имитированным запросом
+		handler.ServeHTTP(response, httpReq)
 
-		// разбиваем строку на слайс по запятым
-		cafes := strings.Split(string(body), ",")
+		// Проверяем статус ответа — должен быть 200 OK
+		require.Equal(t, http.StatusOK, response.Code)
 
-		// обрабатываем случай пустой строки
+		// Получаем тело ответа
+		body := response.Body.String()
+
+		// Разбиваем на слайс по запятым
+		cafes := strings.Split(body, ",")
+
+		// Обрабатываем пустой ответ
 		if len(cafes) == 1 && cafes[0] == "" {
 			cafes = []string{}
 		}
 
-		// проверяем количество найденных кафе
+		// Проверяем количество найденных кафе
 		assert.Equal(t, req.wantCount, len(cafes))
 
-		//для каждого кафе проверяем что оно содержит подстроку search (без учета регистра)
-		searchLower := strings.ToLower(req.search)
+		// Дополнительно: для каждого найденного кафе проверяем, что оно содержит поисковую подстроку
+		searchLower := strings.ToLower(req.search) // приводим поиск к нижнему регистру
 		for _, cafe := range cafes {
+			// Утверждаем, что название кафе содержит подстроку (без учёта регистра)
 			assert.True(t, strings.Contains(strings.ToLower(cafe), searchLower))
 		}
 	}
